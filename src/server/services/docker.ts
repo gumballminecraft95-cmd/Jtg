@@ -6,6 +6,7 @@ const DATA_DIR = path.join(process.cwd(), ".data");
 
 export const isNodeSandbox = false;
 export const dockState = { connected: false };
+export const dockerState = { connected: false };
 
 export function getDocker() {
     return null;
@@ -63,6 +64,35 @@ export async function restartContainer(containerId: string, serverId: string): P
     try {
         const serversFile = path.join(DATA_DIR, "servers.json");
         const servers = await fs.readJson(serversFile);
+        const server = Array.isArray(servers) ? servers.find((s: any) => s.id === serverId) : null;
+        const scriptType = server?.type || "node";
+        const mainFile = server?.mainFile || "index.js";
+        return await startLocalServer(serverId, scriptType, mainFile);
+    } catch (e) {
+        return await startLocalServer(serverId, "node", "index.js");
+    }
+}
+
+export async function getContainerStatus(containerId: string, serverId?: string): Promise<string> {
+    return "running";
+}
+
+export async function getContainerStats(containerId: string, serverId?: string): Promise<any> {
+    return { cpu: 0, memory: 0 };
+}
+
+export async function sendContainerCommand(containerId: string, command: string, serverId?: string): Promise<any> {
+    return { success: true };
+}
+
+export async function getContainerLogs(containerId: string, serverId?: string): Promise<string> {
+    if (serverId) return await getLocalServerLogs(serverId);
+    return "";
+}
+
+export async function attachContainerSocket(containerId: string, serverId: string): Promise<boolean> {
+    return true;
+}        const servers = await fs.readJson(serversFile);
         const server = Array.isArray(servers) ? servers.find((s: any) => s.id === serverId) : null;
         const scriptType = server?.type || "node";
         const mainFile = server?.mainFile || "index.js";
