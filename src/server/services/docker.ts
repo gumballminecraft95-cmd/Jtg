@@ -4,6 +4,13 @@ import fs from "fs-extra";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 
+export const isNodeSandbox = false;
+export const dockState = { connected: false };
+
+export function getDocker() {
+    return null;
+}
+
 export async function createContainer(serverData: any): Promise<string> {
     const localId = `local-${Date.now()}`;
     return localId;
