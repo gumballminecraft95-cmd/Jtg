@@ -1,138 +1,96 @@
-import fs from "fs-extra";
-import path from "path";
-import { spawn, ChildProcess, exec } from "child_process";
-import { promisify } from "util";
-import { panelEvents } from "../events.js";
+You reached the start of the range
+2026-09-20 17:46
+unpacking archive
+2.3 MB
+21ms
+uploading snapshot
+666.2 KB
+12ms
 
-const execAsync = promisify(exec);
-const processes = new Map<string, ChildProcess>();
-const localStartedAt = new Map<string, string>();
-const activeStreams = new Set<string>();
+internal
+load build definition from Dockerfile
+0ms
 
-export async function resolveJavaBinary(targetJavaVersion?: string): Promise<string | null> {
-    if (process.env.JAVA_BIN && await fs.pathExists(process.env.JAVA_BIN)) {
-        return process.env.JAVA_BIN;
-    }
-    const versionSpecificCandidates: string[] = [];
-    if (targetJavaVersion) {
-        versionSpecificCandidates.push(
-            `/usr/lib/jvm/java-${targetJavaVersion}-openjdk-amd64/bin/java`,
-            `/usr/lib/jvm/java-${targetJavaVersion}-openjdk-arm64/bin/java`,
-            `/usr/lib/jvm/java-${targetJavaVersion}-openjdk/bin/java`,
-            `/usr/lib/jvm/temurin-${targetJavaVersion}-jdk-amd64/bin/java`,
-            `/opt/java/openjdk-${targetJavaVersion}/bin/java`,
-            `/opt/jdk-${targetJavaVersion}/bin/java`
-        );
-    }
-    for (const cand of versionSpecificCandidates) {
-        if (await fs.pathExists(cand)) {
-            return cand;
-        }
-    }
-    return "java";
-}
+internal
+load metadata for docker.io/library/node:22-alpine
+266ms
 
-const DATA_DIR = path.join(process.cwd(), ".data");
-const SERVERS_DIR = path.join(DATA_DIR, "servers");
-const serverLogs = new Map<string, string>();
+internal
+load .dockerignore
+0ms
 
-export async function startLocalServer(serverId: string, scriptType = "node", mainFile = "index.js", javaVersion?: string, memory?: string) {
-    const serverPath = path.join(SERVERS_DIR, serverId);
-    const targetFile = path.join(serverPath, mainFile);
+1
+FROM docker.io/library/node:22-alpine@sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85
+133ms
 
-    if (processes.has(serverId)) {
-        return { success: true, message: "Process is already running" };
-    }
+internal
+load build context
+0ms
 
-    if (!await fs.pathExists(targetFile) && scriptType !== "minecraft") {
-        throw new Error(`Main file not found: ${mainFile}`);
-    }
+5
+RUN npm install --no-audit --no-fund --legacy-peer-deps cached
+0ms
 
-    let customEnv: NodeJS.ProcessEnv = { ...process.env, FORCE_COLOR: "true" };
-    const envFilePath = path.join(serverPath, ".env");
-    if (await fs.pathExists(envFilePath)) {
-        try {
-            const envContent = await fs.readFile(envFilePath, "utf8");
-            envContent.split("\n").forEach(line => {
-                const parts = line.split("=");
-                if (parts.length >= 2) {
-                    const key = parts[0].trim();
-                    const value = parts.slice(1).join("=").trim().replace(/^["']|["']$/g, "");
-                    if (key && !key.startsWith("#")) {
-                        customEnv[key] = value;
-                    }
-                }
-            });
-        } catch (e) {
-            console.error(`[JTG] Failed to parse .env for server ${serverId}`, e);
-        }
-    }
+4
+COPY package*.json ./ cached
+0ms
 
-    let command = "";
-    let args: string[] = [];
+3
+WORKDIR /app cached
+0ms
 
-    if (scriptType === "python") {
-        command = "python3";
-        args = [targetFile];
-    } else if (scriptType === "minecraft") {
-        const javaBin = await resolveJavaBinary(javaVersion);
-        const xmx = memory || "2G";
-        command = javaBin || "java";
-        args = [`-Xmx${xmx}`, `-Xms${xmx}`, `-jar`, mainFile];
-    } else {
-        command = "node";
-        args = [targetFile];
-    }
+2
+RUN apk add --no-cache docker-cli git make g++ python3 curl cached
+0ms
 
-    const proc = spawn(command, args, {
-        cwd: serverPath,
-        shell: true,
-        env: customEnv
-    });
+6
+COPY . .
+691ms
 
-    processes.set(serverId, proc);
-    localStartedAt.set(serverId, new Date().toISOString());
-
-    if (!serverLogs.has(serverId)) {
-        serverLogs.set(serverId, "");
-    }
-
-    const appendLog = (data: Buffer) => {
-        const text = data.toString();
-        const current = serverLogs.get(serverId) || "";
-        serverLogs.set(serverId, current + text);
-        panelEvents.emit("log", serverId, text);
-    };
-
-    if (proc.stdout) proc.stdout.on("data", appendLog);
-    if (proc.stderr) proc.stderr.on("data", appendLog);
-
-    proc.on("close", (code) => {
-        const exitMsg = `\n[JTG SYSTEM] Process terminated (Exit Code: ${code})\n`;
-        appendLog(Buffer.from(exitMsg));
-        processes.delete(serverId);
-        localStartedAt.delete(serverId);
-    });
-
-    return { success: true, pid: proc.pid };
-}
-
-export async function stopLocalServer(serverId: string) {
-    const proc = processes.get(serverId);
-    if (proc) {
-        try {
-            proc.kill("SIGKILL");
-        } catch (e) {
-            console.error(e);
-        }
-        processes.delete(serverId);
-        localStartedAt.delete(serverId);
-        panelEvents.emit("log", serverId, "\n[JTG SYSTEM] Server forcefully stopped by user.\n");
-        return { success: true };
-    }
-    return { success: false, error: "Process is not running" };
-}
-
-export async function getLocalServerLogs(serverId: string): Promise<string> {
-    return serverLogs.get(serverId) || "";
-}
+7
+RUN if [ ! -f "dist/server.cjs" ] || [ ! -f "dist/index.html" ]; then NODE_OPTIONS="--max-old-space-size=2048" npm run build; fi
+10s
+> react-example@3.0.0 build
+> vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs
+vite v6.4.3 building for production...
+transforming...
+✓ 2819 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                     0.65 kB │ gzip:   0.40 kB
+dist/assets/index-0ZXyQm2z.css    186.11 kB │ gzip:  27.01 kB
+dist/assets/index-BbY_Smlv.js   1,433.22 kB │ gzip: 403.05 kB
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 8.29s
+✘ [ERROR] No matching export in "src/server/services/local.ts" for import "createLocalServer"
+    src/server/services/runtime.ts:16:2:
+      16 │   createLocalServer,
+         ╵   ~~~~~~~~~~~~~~~~~
+✘ [ERROR] No matching export in "src/server/services/local.ts" for import "killLocalServer"
+    src/server/services/runtime.ts:19:2:
+      19 │   killLocalServer,
+         ╵   ~~~~~~~~~~~~~~~
+✘ [ERROR] No matching export in "src/server/services/local.ts" for import "restartLocalServer"
+    src/server/services/runtime.ts:20:2:
+      20 │   restartLocalServer,
+         ╵   ~~~~~~~~~~~~~~~~~~
+✘ [ERROR] No matching export in "src/server/services/local.ts" for import "deleteLocalServer"
+    src/server/services/runtime.ts:21:2:
+      21 │   deleteLocalServer,
+         ╵   ~~~~~~~~~~~~~~~~~
+✘ [ERROR] No matching export in "src/server/services/local.ts" for import "getLocalServerStatus"
+    src/server/services/runtime.ts:22:2:
+      22 │   getLocalServerStatus,
+         ╵   ~~~~~~~~~~~~~~~~~~~~
+✘ [ERROR] No matching export in "src/server/services/local.ts" for import "getLocalServerStats"
+    src/server/services/runtime.ts:23:2:
+      23 │   getLocalServerStats,
+         ╵   ~~~~~~~~~~~~~~~~~~~
+6 of 14 errors shown (disable the message limit with --log-limit=0)
+Build Failed: build daemon returned an error < failed to solve: process "/bin/sh -c if [ ! -f \"dist/server.cjs\" ] || [ ! -f \"dist/index.html\" ]; then NODE_OPTIONS=\"--max-old-space-size=2048\" npm run build; fi" did not complete successfully: exit code: 1 >
+scheduling build on Metal builder "builder-zthdex"
+You reached the end of the range
+2026-09-20 17:56
